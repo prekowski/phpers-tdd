@@ -2,6 +2,7 @@
 
 namespace AppBundle\Service;
 
+use AppBundle\Client\MktpClient;
 use Doctrine\Common\Cache\CacheProvider;
 use GuzzleHttp\Client;
 
@@ -14,98 +15,30 @@ class VendorService
 {
     const ID = 'est.vendor.service';
 
-    const HTTP_REQUEST_METHOD_POST = 'POST';
-
     const USE_CACHE = true;
 
     const MEMCACHE_KEY = 'vendor_list';
 
     const MEMCACHE_LIFETIME = 1800;
 
-    const ITEMS_PER_PAGE = 1000;
-
     const VENDOR_API_TIMEOUT = 10;
 
     /** @var  Client */
-    protected $guzzleClient;
+    protected $mktpClient;
 
-    protected $mktpUrl;
-
-    /** @var  string */
-    protected $mktpUsername;
-
-    /** @var  string */
-    protected $mktpPassword;
-
-    /** @var  string */
-    protected $mktpVendorCode;
-
-    /** @var  string */
-    protected $mktpVendorApiUrl;
 
     /** @var  CacheProvider */
     protected $cacheProvider;
 
     /**
      * VendorService constructor.
-     */
-    public function __construct()
-    {
-        $guzzleConfig = [
-            'timeout' => self::VENDOR_API_TIMEOUT,
-        ];
-
-        $this->setGuzzleClient(new Client($guzzleConfig));
-    }
-
-    /**
-     * @param array $data
-     * @param int   $pageNr
      *
-     * @return array|mixed
+     * @param $mktpClient
      */
-    protected function request($data = [], $pageNr = 1)
+    public function __construct(MktpClient $mktpClient, CacheProvider $cacheProvider)
     {
-        try {
-            $response = $this->getGuzzleClient()->request(
-                self::HTTP_REQUEST_METHOD_POST,
-                $this->mktpUrl . $this->mktpVendorApiUrl,
-                [
-                    'form_params' => $this->buildRequestData($data, $pageNr),
-                ]
-            );
-
-            return json_decode($response->getBody()->getContents(), true);
-
-        } catch (\Exception $ex) {
-
-            return [
-                'isError' => true,
-                'results' => [],
-            ];
-        }
-    }
-
-    /**
-     * @param array $responseData
-     *
-     * @return array
-     */
-    protected function processResponse($responseData = [])
-    {
-        $response = [];
-        if (isset($responseData['isError']) && $responseData['isError'] !== true) {
-
-            $data = $responseData['results'];
-
-            foreach ($data as $item) {
-                if (isset($item['id']) && isset($item['name'])) {
-                    $response[intval($item['id'])] = $item['name'];
-                }
-            }
-        }
-
-        return $response;
+        $this->mktpClient = $mktpClient;
+        $this->cacheProvider = $cacheProvider;
     }
 
     /**
@@ -121,32 +54,10 @@ class VendorService
             return $vendors;
         }
 
-        $vendors = $this->getAllVendorsFromApi();
+        $vendors = $this->mktpClient->getAllVendors();
         $this->updateVendorInCache($vendors);
 
         return $vendors;
-    }
-
-    /**
-     * @return array
-     */
-    protected function getAllVendorsFromApi()
-    {
-        $done = false;
-        $result = [];
-        $page = 1;
-        while (!$done) {
-            $requestResponse = $this->request([], $page);
-            $response = $this->processResponse($requestResponse);
-            $result = $result + $response;
-
-            if (count($response) < self::ITEMS_PER_PAGE) {
-                $done = true;
-            }
-            $page++;
-        }
-
-        return $result;
     }
 
     /**
@@ -165,36 +76,6 @@ class VendorService
     }
 
     /**
-     * @param     $data
-     * @param int $currentPage
-     *
-     * @return array
-     */
-    protected function buildRequestData($data, $currentPage = 1)
-    {
-        $data['itemsPerPage'] = self::ITEMS_PER_PAGE;
-        $data['currentPage'] = $currentPage;
-        $requestData = [
-            'code'     => $this->getMktpVendorCode(),
-            'username' => $this->getMktpUsername(),
-            'data'     => $data,
-            'hash'     => $this->buildHash($data),
-        ];
-
-        return $requestData;
-    }
-
-    /**
-     * @param $data
-     *
-     * @return string
-     */
-    protected function buildHash($data)
-    {
-        return sha1(http_build_query($data) . sha1($this->getMktpPassword()));
-    }
-
-    /**
      * @param null $vendorId
      *
      * @return array|null
@@ -205,7 +86,7 @@ class VendorService
             return [];
         }
 
-        $vendors = $this->getCacheProvider()->fetch(self::MEMCACHE_KEY);
+        $vendors = $this->cacheProvider->fetch(self::MEMCACHE_KEY);
 
         if (null !== $vendorId) {
             return isset($vendors[$vendorId])
@@ -226,28 +107,7 @@ class VendorService
             return;
         }
 
-        $this->getCacheProvider()->save(self::MEMCACHE_KEY, $vendors, self::MEMCACHE_LIFETIME);
-    }
-
-    /**
-     * @return Client
-     */
-    public function getGuzzleClient()
-    {
-        return $this->guzzleClient;
-    }
-
-    /**
-     * @param Client $guzzleClient
-     *
-     * @return VendorService
-     */
-    public function setGuzzleClient($guzzleClient)
-    {
-
-        $this->guzzleClient = $guzzleClient;
-
-        return $this;
+        $this->cacheProvider->save(self::MEMCACHE_KEY, $vendors, self::MEMCACHE_LIFETIME);
     }
 
     /**
@@ -330,26 +190,6 @@ class VendorService
     public function setMktpVendorApiUrl($mktpVendorApiUrl)
     {
         $this->mktpVendorApiUrl = $mktpVendorApiUrl;
-
-        return $this;
-    }
-
-    /**
-     * @return CacheProvider
-     */
-    public function getCacheProvider()
-    {
-        return $this->cacheProvider;
-    }
-
-    /**
-     * @param CacheProvider $cacheProvider
-     *
-     * @return VendorService
-     */
-    public function setCacheProvider(CacheProvider $cacheProvider)
-    {
-        $this->cacheProvider = $cacheProvider;
 
         return $this;
     }

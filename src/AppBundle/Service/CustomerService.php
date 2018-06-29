@@ -765,7 +765,7 @@ class CustomerService
      *
      * @throws \Exception
      */
-    public function findCompanyByMessageArr(array $arrCompany, CustomerContact $contact, Country $country)
+    private function findCompanyByMessageArr(array $arrCompany, CustomerContact $contact, Country $country)
     {
         /** @var \Doctrine\ORM\EntityManager $em */
         $em = $this->getDoctrine()->getManager();
